@@ -1,3 +1,4 @@
+#if defined(MTK_LCM_DEVICE_TREE_SUPPORT)
 #include <linux/string.h>
 #include <linux/wait.h>
 #include <linux/of.h>
@@ -18,8 +19,8 @@
 /* --------------------------------------------------------------------------- */
 static LCM_DTS _LCM_DTS;
 static LCM_UTIL_FUNCS lcm_util;
-
-
+static unsigned char g_backlight = 0;//2016.04.09 lijianbin@yulong.com add by lijianbin for lcd backlight
+void lcm_setbacklight_yulong(void);//2016.04.09 lijianbin@yulong.com add by lijianbin for lcd backlight
 /* --------------------------------------------------------------------------- */
 /* LCM Driver Implementations */
 /* --------------------------------------------------------------------------- */
@@ -765,6 +766,7 @@ void lcm_common_init(void)
 				return;
 			}
 		}
+    lcm_setbacklight_yulong();//2016.04.09 lijianbin@yulong.com add by lijianbin for lcd backlight
 	} else {
 		pr_debug("[LCM][ERROR] %s/%d: DTS is not parsed\n", __func__, __LINE__);
 		return;
@@ -774,7 +776,8 @@ void lcm_common_init(void)
 
 void lcm_common_suspend(void)
 {
-	if (_LCM_DTS.suspend_size > 8) {
+    printk("yulong lcd suspend\n");//2016.5.5 add by lijianbin for lcd log lijianbin@yulong.com
+	if (_LCM_DTS.suspend_size > 32) {
 		pr_debug("[LCM][ERROR] %s/%d: Suspend table overflow %d\n", __func__, __LINE__,
 		       _LCM_DTS.suspend_size);
 		return;
@@ -787,6 +790,14 @@ void lcm_common_suspend(void)
 		for (i = 0; i < _LCM_DTS.suspend_size; i++) {
 			suspend = &(_LCM_DTS.suspend[i]);
 			switch (suspend->func) {
+			case LCM_FUNC_GPIO:
+				lcm_gpio_set_data(suspend->type, &suspend->data_t1);
+				break;
+
+			case LCM_FUNC_I2C:
+				lcm_i2c_set_data(suspend->type, &suspend->data_t2);
+				break;
+
 			case LCM_FUNC_UTIL:
 				lcm_util_set_data(&lcm_util, suspend->type, &suspend->data_t1);
 				break;
@@ -823,6 +834,7 @@ void lcm_common_suspend(void)
 
 void lcm_common_resume(void)
 {
+    printk("yulong lcd resume\n");//2016.5.5 add by lijianbin for lcd log lijianbin@yulong.com
 	lcm_common_init();
 }
 
@@ -889,73 +901,167 @@ void lcm_common_update(unsigned int x, unsigned int y, unsigned int width, unsig
 		}
 	}
 }
-
-
+static int transform[] = {
+    255,252,250,249,246,243,241,239,238,235,
+    234,231,229,228,225,223,220,220,218,215,
+    212,210,207,206,203,202,201,199,198,196,
+    194,191,190,187,185,183,181,179,177,175,
+    172,171,168,167,164,163,161,160,158,154,
+    150,149,148,145,143,139,137,135,134,132,
+    131,129,128,127,125,124,122,121,119,118,
+    116,115,111,109,105,103,101,97, 95, 92,
+    91, 87, 85, 81, 79, 75, 71, 70, 69, 67,
+    66, 65, 64, 63, 62, 61, 60, 59, 58, 57,
+    56, 56, 55, 54, 52, 51, 49, 47, 46, 45,
+    44, 43, 42, 42, 42, 41, 41, 40, 40, 39,
+    39, 38, 38, 37, 37, 37, 36, 35, 35, 34,
+    34, 33, 33, 32, 32, 32, 32, 31, 31, 30,
+    30, 29, 28, 27, 27, 26, 25, 25, 24, 24,
+    23, 23, 22, 22, 22, 22, 22, 22, 22, 21, //105
+    21, 21, 21, 21, 21, 21, 20, 20, 20, 20,
+    20, 20, 19, 19, 19, 19, 19, 19, 19, 18,
+    18, 18, 18, 18, 18, 18, 17, 17, 17, 17,
+    17, 17, 17, 16, 16, 16, 16, 15, 15, 15,
+    15, 15, 15, 15, 14, 14, 14, 13, 13, 13, //55
+    13, 12, 12, 12, 11, 11, 11, 11, 10, 10,
+    10, 9, 9, 9, 9, 8, 8, 8, 6, 6,
+    6, 6, 6, 6, 4, 4, 4, 4, 4, 4,
+    4, 4, 4, 4, 4, 4, 4, 4, 4, 4,
+    4, 4, 4, 4, 4, 0
+};
+//start 2016.04.09 lijianbin@yulong.com add by lijianbin for lcd backlight
 void lcm_common_setbacklight(unsigned int level)
 {
-	unsigned int default_level = 145;
-	unsigned int mapped_level = 0;
+    unsigned int default_level = 0;
+    unsigned int mapped_level = 0;
 
-	/* for LGE backlight IC mapping table */
-	if (level > 255)
-		level = 255;
+    /* for LGE backlight IC mapping table */
+    if (level > 255)
+        level = 255;
 
-	if (level > 0)
-		mapped_level = default_level + (level) * (255 - default_level) / (255);
-	else
-		mapped_level = 0;
+    if (level > 0)
+        mapped_level = (unsigned char)transform[255-level];
+    else
+        mapped_level = 0;
+    default_level = ((1<<12) - 1)* mapped_level/255;
+    g_backlight = mapped_level;
 
-	if (_LCM_DTS.backlight_size > 1) {
-		pr_debug("[LCM][ERROR] %s/%d: Backlight table overflow %d\n", __func__, __LINE__,
-		       _LCM_DTS.backlight_size);
-		return;
-	}
+    if (_LCM_DTS.backlight_size > 32) {
+        pr_debug("[LCM][ERROR] %s/%d: Backlight table overflow %d\n", __func__, __LINE__,
+            _LCM_DTS.backlight_size);
+        return;
+     }
 
-	if (_LCM_DTS.parsing != 0) {
-		LCM_DATA *backlight;
-		LCM_DATA_T3 *backlight_data_t3;
+    if (_LCM_DTS.parsing != 0) {
+        unsigned int i;
+        LCM_DATA *backlight;
+        LCM_DATA_T3 *backlight_data_t3;
 
-		if (_LCM_DTS.backlight_size > 0) {
-			backlight = &(_LCM_DTS.backlight[0]);
-			backlight_data_t3 = &(backlight->data_t3);
-			backlight_data_t3->data[0] = mapped_level;
-			switch (backlight->func) {
-			case LCM_FUNC_UTIL:
-				lcm_util_set_data(&lcm_util, backlight->type, &backlight->data_t1);
-				break;
+        for (i = 0; i < _LCM_DTS.backlight_size; i++) {
+            if (i == (_LCM_DTS.backlight_size - 1)) {
+                backlight = &(_LCM_DTS.backlight[i]);
+                backlight_data_t3 = &(backlight->data_t3);
+                if(2==backlight_data_t3->size)
+                {
+                    mapped_level = default_level;
+                    backlight_data_t3->data[i] = (mapped_level>>8)&0x0F;
+                    backlight_data_t3->data[i+1] = mapped_level&0xFF;
+                    g_backlight = mapped_level;
+                }
+                else
+                {
+                    backlight_data_t3->data[i] = mapped_level;
+                }
+            } else
+                backlight = &(_LCM_DTS.backlight[i]);
 
-			case LCM_FUNC_CMD:
-				switch (backlight->type) {
-				case LCM_UTIL_WRITE_CMD_V2:
-					lcm_util_set_write_cmd_v2(&lcm_util, &backlight->data_t3,
-								  1);
-					break;
+            switch (backlight->func) {
+            case LCM_FUNC_GPIO:
+                lcm_gpio_set_data(backlight->type, &backlight->data_t1);
+                break;
 
-				default:
-					pr_debug("[LCM][ERROR] %s/%d: %d\n", __func__, __LINE__,
-					       (unsigned int)backlight->type);
-					return;
-				}
-				break;
+            case LCM_FUNC_I2C:
+                lcm_i2c_set_data(backlight->type, &backlight->data_t2);
+                break;
 
-			default:
-				pr_debug("[LCM][ERROR] %s/%d: %d\n", __func__, __LINE__,
-				       (unsigned int)backlight->func);
-				return;
-			}
-		}
-	} else {
-		pr_debug("[LCM][ERROR] %s/%d: DTS is not parsed\n", __func__, __LINE__);
-		return;
-	}
+            case LCM_FUNC_UTIL:
+                lcm_util_set_data(&lcm_util, backlight->type, &backlight->data_t1);
+                break;
+
+            case LCM_FUNC_CMD:
+                switch (backlight->type) {
+                    case LCM_UTIL_WRITE_CMD_V1:
+                        lcm_util_set_write_cmd_v1(&lcm_util, &backlight->data_t5,
+                            1);
+                        break;
+
+                    case LCM_UTIL_WRITE_CMD_V2:
+                         lcm_util_set_write_cmd_v2(&lcm_util, &backlight->data_t3,
+                            1);
+                        break;
+
+                    default:
+                        pr_debug("[LCM][ERROR] %s/%d: %d\n", __func__, __LINE__,
+                            (unsigned int)backlight->type);
+                      return;
+               }
+               break;
+
+            default:
+                pr_debug("[LCM][ERROR] %s/%d: %d\n", __func__, __LINE__,
+                   (unsigned int)backlight->func);
+            return;
+            }
+        }
+    } else {
+          pr_debug("[LCM][ERROR] %s/%d: DTS is not parsed\n", __func__, __LINE__);
+          return;
+      }
 }
+void lcm_setbacklight_yulong(void)
+{
+    LCM_DATA_T5 data_t5={0};
 
-
+    memset(&data_t5,0,sizeof(LCM_DATA_T5));
+    if (_LCM_DTS.parsing != 0) {
+        unsigned int i = 0;
+        LCM_DATA *backlight = NULL;
+        LCM_DATA_T3 *backlight_data_t3 = NULL;
+        for (i = 0; i < _LCM_DTS.backlight_size; i++) {
+            if (i == (_LCM_DTS.backlight_size - 1)) {
+                backlight = &(_LCM_DTS.backlight[i]);
+                backlight_data_t3 = &(backlight->data_t3);
+                if(2 == backlight_data_t3->size)
+                {
+                    data_t5.size = 2;
+                    data_t5.cmd[0] = 0x02;
+                    data_t5.cmd[1] = 0x29;
+                    data_t5.cmd[2] = 0x03;
+                    data_t5.cmd[3] = 0x00;
+                    data_t5.cmd[4] = 0x51;
+                    data_t5.cmd[5] = (g_backlight>>8)&0x0F;
+                    data_t5.cmd[6] = g_backlight&0xFF;
+                    data_t5.cmd[7] = 0x00;
+               }
+               else
+               {
+                    data_t5.size = 1;
+                    data_t5.cmd[0] = 0x00;
+                    data_t5.cmd[1] = 0x23;
+                    data_t5.cmd[2] = 0x51;
+                    data_t5.cmd[3] = g_backlight&0xFF;
+               }
+              lcm_util_set_write_cmd_v1(&lcm_util, &data_t5,1);
+           }
+        }
+    }
+}
+//end 2016.04.09 lijianbin@yulong.com add by lijianbin for lcd backlight
 unsigned int lcm_common_compare_id(void)
 {
 	unsigned int compare = 0;
 
-	if (_LCM_DTS.compare_id_size > 8) {
+	if (_LCM_DTS.compare_id_size > 32) {
 		pr_debug("[LCM][ERROR] %s/%d: Init table overflow %d\n", __func__, __LINE__,
 		       _LCM_DTS.init_size);
 		return 0;
@@ -970,6 +1076,14 @@ unsigned int lcm_common_compare_id(void)
 		for (i = 0; i < _LCM_DTS.compare_id_size; i++) {
 			compare_id = &(_LCM_DTS.compare_id[i]);
 			switch (compare_id->func) {
+			case LCM_FUNC_GPIO:
+				lcm_gpio_set_data(compare_id->type, &compare_id->data_t1);
+				break;
+
+			case LCM_FUNC_I2C:
+				lcm_i2c_set_data(compare_id->type, &compare_id->data_t2);
+				break;
+
 			case LCM_FUNC_UTIL:
 				lcm_util_set_data(&lcm_util, compare_id->type,
 						  &compare_id->data_t1);
@@ -1029,3 +1143,4 @@ LCM_DRIVER lcm_common_drv = {
 	.update = lcm_common_update,
 	.parse_dts = lcm_common_parse_dts,
 };
+#endif

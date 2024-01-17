@@ -32,11 +32,6 @@
 		reg = <0x5d>;
 	};
 
-	i2c_lcd_bias@3e {
-		compatible = "mediatek,i2c_lcd_bias";
-		reg = <0x3e>;
-	};
-
 };
 
 &i2c2 {
@@ -44,7 +39,12 @@
 		compatible = "mediatek,msensor";
 		reg = <0x0d>;
 	};
-
+/* 2016.5.5 add by lijianbin for lcd i2c device config lijianbin@yulong.com */
+  i2c_lcd_bias@3e {
+    compatible = "mediatek,i2c_lcd_bias";
+    reg = <0x3e>;
+  };
+ 
 	gyro@68 {
 		compatible = "mediatek,gyro";
 		reg = <0x68>;

@@ -624,9 +624,11 @@ typedef struct {
 } LCM_PARAMS;
 
 
+#if defined(MTK_LCM_DEVICE_TREE_SUPPORT)
 typedef struct {
 	char data;
-	char padding[131];
+	char gpio_num;
+	char padding[130];
 } LCM_DATA_T1;
 
 
@@ -686,10 +688,11 @@ typedef struct {
 
 	LCM_PARAMS params;
 	LCM_DATA init[256];
-	LCM_DATA compare_id[8];
-	LCM_DATA suspend[8];
-	LCM_DATA backlight[8];
+	LCM_DATA compare_id[32];
+	LCM_DATA suspend[32];
+	LCM_DATA backlight[32];
 } LCM_DTS;
+#endif
 
 
 /* --------------------------------------------------------------------------- */
@@ -768,7 +771,9 @@ typedef struct {
 
 	void (*update)(unsigned int x, unsigned int y, unsigned int width, unsigned int height);
 	unsigned int (*compare_id)(void);
+#if defined(MTK_LCM_DEVICE_TREE_SUPPORT)
 	void (*parse_dts)(const LCM_DTS *DTS, unsigned char force_update);
+#endif
 
 	/* /////////////////////////CABC backlight related function */
 	void (*set_backlight)(unsigned int level);
@@ -808,6 +813,7 @@ typedef struct {
 	defined(CONFIG_ARCH_MT6580)
 extern LCM_DRIVER *lcm_driver_list[];
 extern unsigned int lcm_count;
+extern unsigned int lcm_name_count;
 #endif
 /* --------------------------------------------------------------------------- */
 /* LCM Driver Functions */

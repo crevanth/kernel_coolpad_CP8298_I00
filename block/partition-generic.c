@@ -19,7 +19,10 @@
 #include <linux/blktrace_api.h>
 
 #include "partitions/check.h"
-
+/*yulong add for yl_params init 20151231*/
+extern void notify_ylparams(struct hd_struct *part);
+extern void notify_ylpanic(struct hd_struct *part);
+/*yulong end*/
 #ifdef CONFIG_BLK_DEV_MD
 extern void md_autodetect_dev(dev_t dev);
 #endif
@@ -531,6 +534,10 @@ rescan:
 			       disk->disk_name, p, -PTR_ERR(part));
 			continue;
 		}
+		/*yulong add for yl_params init 20151231*/
+		notify_ylparams(part);
+		notify_ylpanic(part);
+		/*yulong end*/
 #ifdef CONFIG_BLK_DEV_MD
 		if (state->parts[p].flags & ADDPART_FLAG_RAID)
 			md_autodetect_dev(part_to_dev(part)->devt);

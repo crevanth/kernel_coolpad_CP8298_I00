@@ -15,3 +15,4 @@ obj-$(CONFIG_FB_SYS_FOPS)      += fb_sys_fops.o
 obj-$(CONFIG_FB_SVGALIB)       += svgalib.o
 obj-$(CONFIG_FB_DDC)           += fb_ddc.o
 obj-$(CONFIG_FB_DEFERRED_IO)   += fb_defio.o
+obj-y += yl_lcd.o

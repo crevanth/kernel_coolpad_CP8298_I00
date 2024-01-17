@@ -1,7 +1,9 @@
 #
 # Makefile for misc devices that really don't fit anywhere else.
 #
-
+#/*start to modify for chip info by qinxinjun@yulong.com in 20160504*/
+obj-y    += sensors_class.o
+#/*end to modify for chip info by qinxinjun@yulong.com in 20160504*/
 obj-$(CONFIG_IBM_ASM)		+= ibmasm/
 obj-$(CONFIG_AD525X_DPOT)	+= ad525x_dpot.o
 obj-$(CONFIG_AD525X_DPOT_I2C)	+= ad525x_dpot-i2c.o

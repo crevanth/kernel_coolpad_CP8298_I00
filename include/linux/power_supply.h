@@ -172,10 +172,13 @@ enum power_supply_property {
 	POWER_SUPPLY_PROP_present_smb,
 	/* ADB CMD Discharging */
 	POWER_SUPPLY_PROP_adjust_power,
+	POWER_SUPPLY_PROP_Charger_Type, //add by sunxiaogang@yulong.com 2015.03.24 for charger type detect
+	POWER_SUPPLY_PROP_Battery_Type, //add by sunxiaogang@yulong.com 2015.05.11 for battery type detect
 	/* Properties of type `const char *' */
 	POWER_SUPPLY_PROP_MODEL_NAME,
 	POWER_SUPPLY_PROP_MANUFACTURER,
 	POWER_SUPPLY_PROP_SERIAL_NUMBER,
+    POWER_SUPPLY_PROP_VENDOR,//add by cuixuanke@yulong.com 2016.05.04 for for power supply interface
 };
 
 enum power_supply_type {

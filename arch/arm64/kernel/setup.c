@@ -83,6 +83,7 @@ unsigned int compat_elf_hwcap2 __read_mostly;
 DECLARE_BITMAP(cpu_hwcaps, ARM64_NCAPS);
 
 static const char *cpu_name;
+static const char *machine_name;
 phys_addr_t __fdt_pointer __initdata;
 
 /*
@@ -315,6 +316,7 @@ static void __init setup_machine_fdt(phys_addr_t dt_phys)
 			cpu_relax();
 	}
 
+	machine_name = of_flat_dt_get_machine_name();
 	dump_stack_set_arch_desc("%s (DT)", of_flat_dt_get_machine_name());
 }
 
@@ -419,8 +421,85 @@ void __init setup_arch(char **cmdline_p)
 #endif
 }
 
+/*---added by chenlifeng@yulong.com:factory mode for getting devices info in MTK DTS ARCH,2015.3.24----*/
+static char buff[512] = { 0 };
+struct mutex main_device_mutex;
+int all_info_len = 0;  //added by fanli to read MCP FW ID,2013.04.26
+int get_device_info(char* buf)
+{
+   int len = 0;
+  if (buf == NULL)
+  {
+    printk("error buf is NULL\n");
+    return -1;
+  }
+  len = strlen(buf);
+  all_info_len += len;  //added by fanli to read MCP FW ID,2013.04.26
+  if (len < 0 || len > 64)
+    {
+      printk("get_device_info error with len %d\n", len);
+      return -1;
+    }
+  mutex_lock(&main_device_mutex);
+  /*---added by fanli to read MCP FW ID,2013.04.26---*/
+  if(all_info_len < 512)
+  {
+      strcat(buff, buf);
+  }
+  else
+  {
+      printk("get_device_info : all_info_len is too long!! \n");
+  }
+  /*---ended by fanli to read MCP FW ID,2013.04.26---*/
+  //printk("buf string %s\n", buff);
+  mutex_unlock(&main_device_mutex);
+  return 0;
+}
+EXPORT_SYMBOL(get_device_info);
+static ssize_t main_devices_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
+{
+  printk("enter %s\n", __FUNCTION__);
+  return sprintf(buf, buff);
+}
+
+static struct kobj_attribute all_main_devices_attr =
+{
+  .attr =
+  {
+     .name = "devs",
+     .mode = S_IRUGO,
+  },
+  .show = main_devices_show,
+};
+static struct attribute *main_devices_attributes[] =
+  { &all_main_devices_attr.attr, NULL };
+
+static struct attribute_group main_devices_group =
+{
+  .attrs = main_devices_attributes
+};
+void __init devices_sysfs_init(void)
+{
+  struct kobject *properties_kobj;
+  int ret = 0;
+  printk("chenlifeng:devices_sysfs_init\n");
+  properties_kobj = kobject_create_and_add("main_devices", NULL);
+  if (properties_kobj)
+  {
+      ret = sysfs_create_group(properties_kobj, &main_devices_group);
+      printk("create main_devices sucesss1111\n");
+  }
+  if (ret < 0)
+  printk("Create devices properties failed!\n");
+  mutex_init(&main_device_mutex);
+}
+/*---end by chenlifeng@yulong.com:factory mode for getting devices info in MTK DTS ARCH,2015.3.24----*/
+
 static int __init arm64_device_init(void)
 {
+/*---added by chenlifeng@yulong.com:factory mode for getting devices info in MTK DTS ARCH,2015.3.24----*/
+	devices_sysfs_init();
+/*---end by chenlifeng@yulong.com:factory mode for getting devices info in MTK DTS ARCH,2015.3.24----*/
 	of_platform_populate(NULL, of_default_bus_match_table, NULL, NULL);
 	return 0;
 }
@@ -493,6 +572,11 @@ static int c_show(struct seq_file *m, void *v)
 {
 	int i, j;
 
+	pr_err("Dump cpuinfo\n");
+
+	seq_printf(m, "Processor\t: %s rev %d (%s)\n",
+		   cpu_name, read_cpuid_id() & 15, ELF_PLATFORM);
+
 	for_each_online_cpu(i) {
 		struct cpuinfo_arm64 *cpuinfo = &per_cpu(cpu_data, i);
 		u32 midr = cpuinfo->reg_midr;
@@ -541,6 +625,8 @@ static int c_show(struct seq_file *m, void *v)
 		seq_printf(m, "CPU part\t: 0x%03x\n", MIDR_PARTNUM(midr));
 		seq_printf(m, "CPU revision\t: %d\n\n", MIDR_REVISION(midr));
 	}
+
+	seq_printf(m, "Hardware\t: %s\n", machine_name);
 
 	return 0;
 }

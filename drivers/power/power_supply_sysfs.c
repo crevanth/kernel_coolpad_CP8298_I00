@@ -68,6 +68,16 @@ static ssize_t power_supply_show_property(struct device *dev,
 	static char *scope_text[] = {
 		"Unknown", "System", "Device"
 	};
+	/*add begin by sunxiaogang@yulong.com 2015.03.24 for charger type detect*/
+	static char *charger_type_text[] = {
+		"Unknown", "Standrand_Host", "Charging_Host", "NonStandrand","Standrand"
+	};
+	/*add end by sunxiaogang@yulong.com*/
+	/*add begin by sunxiaogang@yulong.com 2015.05.11 for battery type detect*/
+	static char *battery_type_text[] = {
+		"Unknown", "cpcc", "cptm", "cpvk","cpat"
+	};
+	/*add end by sunxiaogang@yulong.com*/
 	ssize_t ret = 0;
 	struct power_supply *psy = dev_get_drvdata(dev);
 	const ptrdiff_t off = attr - power_supply_attrs;
@@ -103,8 +113,19 @@ static ssize_t power_supply_show_property(struct device *dev,
 		return sprintf(buf, "%s\n", type_text[value.intval]);
 	else if (off == POWER_SUPPLY_PROP_SCOPE)
 		return sprintf(buf, "%s\n", scope_text[value.intval]);
+	/*add begin by sunxiaogang@yulong.com 2015.03.24 for charger type detect*/
+	else if (off == POWER_SUPPLY_PROP_Charger_Type)
+		return sprintf(buf, "%s\n", charger_type_text[value.intval]);
+	/*add end by sunxiaogang@yulong.com*/
+	/*add begin by sunxiaogang@yulong.com 2015.05.11 for battery type detect*/
+	else if (off == POWER_SUPPLY_PROP_Battery_Type)
+		return sprintf(buf, "%s\n", battery_type_text[value.intval]);
+	/*add end by sunxiaogang@yulong.com*/
 	else if (off >= POWER_SUPPLY_PROP_MODEL_NAME)
 		return sprintf(buf, "%s\n", value.strval);
+    /*add by cuixuanke@yulong.com at 2016.05.04 for new IC infomation*/
+    else if (off == POWER_SUPPLY_PROP_VENDOR)
+        return sprintf(buf, "%s\n", value.strval);
 
 	if (off == POWER_SUPPLY_PROP_CHARGE_COUNTER_EXT)
 		return sprintf(buf, "%lld\n", value.int64val);
@@ -223,10 +244,13 @@ static struct device_attribute power_supply_attrs[] = {
 	POWER_SUPPLY_ATTR(present_smb),
 	/* ADB CMD Discharging */
 	POWER_SUPPLY_ATTR(adjust_power),
+	POWER_SUPPLY_ATTR(BAT_Charger_Type),//add by sunxiaogang@yulong.com 2015.03.24 for charger type detect
+	POWER_SUPPLY_ATTR(BAT_Battery_Type),//add by sunxiaogang@yulong.com 2015.05.11 for battery type detect
 	/* Properties of type `const char *' */
 	POWER_SUPPLY_ATTR(model_name),
 	POWER_SUPPLY_ATTR(manufacturer),
 	POWER_SUPPLY_ATTR(serial_number),
+    POWER_SUPPLY_ATTR(vendor),//add by cuixuanke@yulong.com at 2016.05.04 for new IC infomation
 };
 
 static struct attribute *

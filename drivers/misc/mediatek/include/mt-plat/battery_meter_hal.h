@@ -11,7 +11,7 @@
 #define bm_print(num, fmt, args...)   \
 do {									\
 	if (Enable_FGADC_LOG >= (int)num) {				\
-		pr_debug(fmt, ##args); \
+		pr_err(fmt, ##args); \
 	}								   \
 } while (0)
 

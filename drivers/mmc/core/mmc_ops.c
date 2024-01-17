@@ -190,6 +190,36 @@ int mmc_send_op_cond(struct mmc_host *host, u32 ocr, u32 *rocr)
 	return err;
 }
 
+/*************** start:added by zhoumaiyun to read eMCP Info 2016.05.23 **********/
+extern int get_device_info(char* buf);
+static void get_eMCP_Info(u32 *buf)
+{
+    char cid[40]={0};
+    char tmpbuf[50]={0};
+
+    sprintf(cid,"%08X%08X%08X%08X",buf[0],buf[1],buf[2],buf[3]);
+
+    if(!memcmp("13", cid, 2))
+    {
+        get_device_info("eMCP: Micron\n");
+    }
+    else if(!memcmp("15", cid, 2))
+    {
+        get_device_info("eMCP: Samsung\n");
+    }
+    else if(!memcmp("90", cid, 2))
+    {
+        get_device_info("eMCP: Hynix\n");
+    }
+    sprintf(tmpbuf,"eMCP cid: %s\n",cid);
+    get_device_info(tmpbuf);
+
+    sprintf(tmpbuf,"eMCP FW_ID: %02X\n",(buf[2]>>16) & 0xFF);
+    get_device_info(tmpbuf);
+}
+static int get_devices_flag = 0;
+/*************** end:added by zhoumaiyun to read eMCP Info 2016.05.23 **********/
+
 int mmc_all_send_cid(struct mmc_host *host, u32 *cid)
 {
 	int err;
@@ -208,6 +238,13 @@ int mmc_all_send_cid(struct mmc_host *host, u32 *cid)
 
 	memcpy(cid, cmd.resp, sizeof(u32) * 4);
 
+/*********** start:added by zhoumaiyun to read eMCP Info 2014.06.25 **********/
+    if(!get_devices_flag)
+    {
+        get_devices_flag = 1;
+        get_eMCP_Info(cid);
+    }
+/*********** end:added by zhoumaiyun to read eMCP Info 2014.06.25 **********/
 	return 0;
 }
 

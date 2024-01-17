@@ -1051,12 +1051,21 @@ static unsigned int charging_full_check(void)
 	/*}*/
 }
 
-
+/*add by sunxiaogang@yulong.com 2015.07.20 for thermal regulation when charging*/
+#if defined(CONFIG_YULONG_BQ24296_SUPPORT)
+extern unsigned int mt_get_bl_brightness(void);
+#endif
+/*add end by sunxiaogang@yulong.com 2015.07.20*/
 static void pchr_turn_on_charging(void)
 {
 #if !defined(CONFIG_MTK_JEITA_STANDARD_SUPPORT)
 	BATTERY_VOLTAGE_ENUM cv_voltage;
 #endif
+	/*add by sunxiaogang@yulong.com 2015.07.20 for thermal regulation when charging*/
+	#if defined(CONFIG_YULONG_BQ24296_SUPPORT)
+	int bl_ret = 0;
+	#endif
+	/*add end by sunxiaogang@yulong.com 2015.07.20*/
 	unsigned int charging_enable = KAL_TRUE;
 
 #if defined(CONFIG_MTK_DUAL_INPUT_CHARGER_SUPPORT)
@@ -1085,6 +1094,11 @@ static void pchr_turn_on_charging(void)
 		battery_pump_express_algorithm_start();
 #endif
 
+		/*add by sunxiaogang@yulong.com 2015.07.20 for thermal regulation when charging*/
+		#if defined(CONFIG_YULONG_BQ24296_SUPPORT)
+		bl_ret = mt_get_bl_brightness();
+		#endif
+		/*add end by sunxiaogang@yulong.com 2015.07.20*/
 		/* Set Charging Current */
 		if (get_usb_current_unlimited()) {
 			if (batt_cust_data.ac_charger_input_current != 0)
@@ -1096,7 +1110,13 @@ static void pchr_turn_on_charging(void)
 			battery_log(BAT_LOG_FULL,
 				    "USB_CURRENT_UNLIMITED, use batt_cust_data.ac_charger_current\n");
 #ifndef CONFIG_MTK_SWITCH_INPUT_OUTPUT_CURRENT_SUPPORT
+		/*modify by sunxiaogang@yulong.com 2015.07.20 for thermal regulation when charging*/
+		#if defined(CONFIG_YULONG_BQ24296_SUPPORT)
+		} else if ((g_bcct_flag == 1)&&(bl_ret > 0)&&(BMT_status.SOC > 15)) {
+		#else
 		} else if (g_bcct_flag == 1) {
+		#endif
+        	/*modify end by sunxiaogang@yulong.com 2015.07.20*/
 			select_charging_current_bcct();
 
 			battery_log(BAT_LOG_FULL, "[BATTERY] select_charging_current_bcct !\n");
@@ -1106,7 +1126,13 @@ static void pchr_turn_on_charging(void)
 			battery_log(BAT_LOG_FULL, "[BATTERY] select_charging_current !\n");
 		}
 #else
+		/*modify by sunxiaogang@yulong.com 2015.07.20 for thermal regulation when charging*/
+		#if defined(CONFIG_YULONG_BQ24296_SUPPORT)
+		} else if ((g_bcct_flag == 1 || g_bcct_input_flag == 1)&&(bl_ret > 0)&&(BMT_status.SOC > 15)) {
+		#else
 		} else if (g_bcct_flag == 1 || g_bcct_input_flag == 1) {
+		#endif
+		/*modify end by sunxiaogang@yulong.com 2015.07.20*/
 			select_charging_current();
 			select_charging_current_bcct();
 			battery_log(BAT_LOG_FULL, "[BATTERY] select_charging_curret_bcct !\n");
@@ -1133,7 +1159,12 @@ static void pchr_turn_on_charging(void)
 			/*Set CV Voltage */
 #if !defined(CONFIG_MTK_JEITA_STANDARD_SUPPORT)
 			if (batt_cust_data.high_battery_voltage_support)
+			//modify by sunxiaogang@yulong.com 2015.04.23 to increase the battery full voltage
+			#if defined(CONFIG_YULONG_BQ24296_SUPPORT)
+			cv_voltage = BATTERY_VOLT_04_350000_V;
+			#else
 				cv_voltage = BATTERY_VOLT_04_340000_V;
+			#endif
 			else
 				cv_voltage = BATTERY_VOLT_04_200000_V;
 

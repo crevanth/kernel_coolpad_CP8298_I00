@@ -32,11 +32,20 @@
 #define TRUE (1)
 #endif
 
-#define GYRO_TAG					"<GYROSCOPE> "
-#define GYRO_FUN(f)				pr_debug(GYRO_TAG"%s\n", __func__)
-#define GYRO_ERR(fmt, args...)	pr_err(GYRO_TAG fmt, ##args)
-#define GYRO_LOG(fmt, args...)	pr_debug(GYRO_TAG fmt, ##args)
-#define GYRO_VER(fmt, args...)  pr_debug(GYRO_TAG fmt, ##args)
+#define GYRO_DEBUG
+
+#ifdef GYRO_DEBUG
+#define GYRO_TAG		"<GYROSCOPE> "
+#define GYRO_FUN(f)		printk(GYRO_TAG"%s\n", __func__)
+#define GYRO_ERR(fmt, args...)	printk(KERN_ERR GYRO_TAG"%s %d : "fmt, __func__, __LINE__,##args)
+#define GYRO_LOG(fmt, args...)	printk(KERN_ERR GYRO_TAG fmt, ##args)
+#define GYRO_VER(fmt, args...)  printk(KERN_INFO GYRO_TAG fmt, ##args)
+#else
+#define GYRO_FUN(f)
+#define GYRO_ERR(fmt, args...)
+#define GYRO_LOG(fmt, args...)
+#define GYRO_VER(fmt, args...)
+#endif
 
 #define OP_GYRO_DELAY	0X01
 #define	OP_GYRO_ENABLE	0X02

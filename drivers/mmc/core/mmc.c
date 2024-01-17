@@ -455,6 +455,7 @@ static int mmc_read_ext_csd(struct mmc_card *card, u8 *ext_csd)
 		ext_csd[EXT_CSD_HC_ERASE_GRP_SIZE];
 	if (card->ext_csd.rev >= 3) {
 		u8 sa_shift = ext_csd[EXT_CSD_S_A_TIMEOUT];
+		u8 sn_shift = ext_csd[EXT_CSD_SLEEP_NOTIFICATION_TIME];
 		card->ext_csd.part_config = ext_csd[EXT_CSD_PART_CONFIG];
 
 		/* EXT_CSD value is in units of 10ms, but we store in ms */
@@ -464,6 +465,12 @@ static int mmc_read_ext_csd(struct mmc_card *card, u8 *ext_csd)
 		if (sa_shift > 0 && sa_shift <= 0x17)
 			card->ext_csd.sa_timeout =
 					1 << ext_csd[EXT_CSD_S_A_TIMEOUT];
+
+		/* Sleep notification time in 10us units */
+		if (sn_shift > 0 && sn_shift <= 0x17)
+			card->ext_csd.sleep_notification_time =
+					1 << ext_csd[EXT_CSD_SLEEP_NOTIFICATION_TIME];
+
 		card->ext_csd.erase_group_def =
 			ext_csd[EXT_CSD_ERASE_GROUP_DEF];
 		card->ext_csd.hc_erase_timeout = 300 *
@@ -724,6 +731,55 @@ out:
 	return err;
 }
 
+/*
+ * emmc vendor name under fastmmi mode
+ * huyue added on 2016/3/16
+ */
+#ifndef CID_MANFID_SANDISK
+#define CID_MANFID_SANDISK	0x2
+#endif
+#ifndef CID_MANFID_TOSHIBA
+#define CID_MANFID_TOSHIBA	0x11
+#endif
+#ifndef CID_MANFID_MICRON
+#define CID_MANFID_MICRON	0x13
+#endif
+#ifndef CID_MANFID_SAMSUNG
+#define CID_MANFID_SAMSUNG	0x15
+#endif
+#ifndef CID_MANFID_SANDISK_NEW
+#define CID_MANFID_SANDISK_NEW	0x45
+#endif
+#ifndef CID_MANFID_HYNIX
+#define CID_MANFID_HYNIX	0x90
+#endif
+#ifndef CID_MANFID_KSI
+#define CID_MANFID_KSI		0x70
+#endif
+
+static char *mmc_get_vendor(unsigned int manfid)
+{
+	switch (manfid)
+	{
+		case CID_MANFID_SANDISK:
+			return "SANDISK";
+		case CID_MANFID_TOSHIBA:
+			return "TOSHIBA";
+		case CID_MANFID_MICRON:
+			return "MICRON";
+		case CID_MANFID_SAMSUNG:
+			return "SAMSUNG";
+		case CID_MANFID_SANDISK_NEW:
+			return "SANDISK_NEW";
+		case CID_MANFID_HYNIX:
+			return "HYNIX";
+		case CID_MANFID_KSI:
+			return "KSI";
+		default:
+			return "Unknow";
+	}
+}
+
 MMC_DEV_ATTR(cid, "%08x%08x%08x%08x\n", card->raw_cid[0], card->raw_cid[1],
 	card->raw_cid[2], card->raw_cid[3]);
 MMC_DEV_ATTR(csd, "%08x%08x%08x%08x\n", card->raw_csd[0], card->raw_csd[1],
@@ -743,6 +799,24 @@ MMC_DEV_ATTR(enhanced_area_offset, "%llu\n",
 MMC_DEV_ATTR(enhanced_area_size, "%u\n", card->ext_csd.enhanced_area_size);
 MMC_DEV_ATTR(raw_rpmb_size_mult, "%#x\n", card->ext_csd.raw_rpmb_size_mult);
 MMC_DEV_ATTR(rel_sectors, "%#x\n", card->ext_csd.rel_sectors);
+MMC_DEV_ATTR(emmc_information, "\n\nEMMC_Info as followed:\n"
+    "EMMC_Vendor              :        %s\n"
+    "(Manufactor_ID = 0x%06x) \n"
+    "OEM_ID                   :        0x%04x\n"
+    "Product_Name             :        %s\n"
+    "Product_Revision         :        0x%x \n"
+    "Product_Serial_Name      :        0x%08x\n"
+    "Product_Date             :        %d-%d\n\n",
+    mmc_get_vendor(card->cid.manfid),
+    card->cid.manfid,
+    card->cid.oemid,
+    card->cid.prod_name,
+    card->cid.prv,
+    card->cid.serial,
+    card->cid.year,
+    card->cid.month
+      );
+
 
 static struct attribute *mmc_std_attrs[] = {
 	&dev_attr_cid.attr,
@@ -761,6 +835,7 @@ static struct attribute *mmc_std_attrs[] = {
 	&dev_attr_enhanced_area_size.attr,
 	&dev_attr_raw_rpmb_size_mult.attr,
 	&dev_attr_rel_sectors.attr,
+	&dev_attr_emmc_information.attr,
 	NULL,
 };
 ATTRIBUTE_GROUPS(mmc_std);
@@ -1617,6 +1692,39 @@ int mmc_reinit_oldcard(struct mmc_host *host)
 }
 #endif
 
+/*
+ * Turn the cache ON/OFF.
+ * Turning the cache OFF shall trigger flushing of the data
+ * to the non-volatile storage.
+ * This function should be called with host claimed
+ */
+static int mmc_cache_ctrl(struct mmc_host *host, u8 enable)
+{
+	struct mmc_card *card = host->card;
+	unsigned int timeout;
+	int err = 0;
+
+	if (card && mmc_card_mmc(card) &&
+			(card->ext_csd.cache_size > 0)) {
+		enable = !!enable;
+
+		if (card->ext_csd.cache_ctrl ^ enable) {
+			timeout = enable ? card->ext_csd.generic_cmd6_time : 0;
+			err = mmc_switch(card, EXT_CSD_CMD_SET_NORMAL,
+					EXT_CSD_CACHE_CTRL, enable, timeout);
+			if (err)
+				pr_err("%s: cache %s error %d\n",
+						mmc_hostname(card->host),
+						enable ? "on" : "off",
+						err);
+			else
+				card->ext_csd.cache_ctrl = enable;
+		}
+	}
+
+	return err;
+}
+
 static int mmc_can_sleep(struct mmc_card *card)
 {
 	return (card && card->ext_csd.rev >= 3);
@@ -1627,7 +1735,20 @@ static int mmc_sleep(struct mmc_host *host)
 	struct mmc_command cmd = {0};
 	struct mmc_card *card = host->card;
 	unsigned int timeout_ms = DIV_ROUND_UP(card->ext_csd.sa_timeout, 10000);
+	unsigned int sn_timeout_ms = DIV_ROUND_UP(card->ext_csd.sleep_notification_time, 100);
 	int err;
+
+	/*
+	 * Send sleep_notification if eMMC reversion after v5.0
+	 */
+	if (card->ext_csd.rev >= 7 && !(card->quirks & MMC_QUIRK_DISABLE_SNO)) {
+		err = __mmc_switch(card, EXT_CSD_CMD_SET_NORMAL,
+				EXT_CSD_POWER_OFF_NOTIFICATION,
+				EXT_CSD_SLEEP_NOTIFICATION, sn_timeout_ms, true, false, false);
+		if (err)
+			pr_err("%s: Sleep Notification timed out %u\n",
+				       mmc_hostname(card->host), sn_timeout_ms);
+	}
 
 	err = mmc_deselect_cards(host);
 	if (err)
@@ -1679,9 +1800,6 @@ static int mmc_awake(struct mmc_host *host)
 	err = mmc_wait_for_cmd(host, &cmd, 0);
 	if (err)
 		return err;
-
-	if (!(host->caps & MMC_CAP_WAIT_WHILE_BUSY))
-		mmc_delay(DIV_ROUND_UP(card->ext_csd.sa_timeout, 10000));
 
 	err = mmc_select_card(host->card);
 
@@ -1789,7 +1907,14 @@ static int _mmc_suspend(struct mmc_host *host, bool is_suspend)
 		MMC_UPDATE_BKOPS_STATS_SUSPEND(host->card->bkops_info.bkops_stats);
 #endif
 	}
-	err = mmc_flush_cache(host->card);
+
+	/*
+	 * Turn off cache if eMMC reversion before v5.0
+	 */
+	if (host->card->ext_csd.rev < 7)
+		err = mmc_cache_ctrl(host, 0);
+	else
+		err = mmc_flush_cache(host->card);
 	if (err)
 		goto out;
 
@@ -1856,6 +1981,12 @@ static int _mmc_resume(struct mmc_host *host)
 	} else
 		err = mmc_init_card(host, host->card->ocr, host->card);
 	mmc_card_clr_suspended(host->card);
+
+	/*
+	 * Turn on cache if eMMC reversion before v5.0
+	 */
+	if (host->card->ext_csd.rev < 7)
+		err = mmc_cache_ctrl(host, 1);
 
 out:
 	mmc_release_host(host);

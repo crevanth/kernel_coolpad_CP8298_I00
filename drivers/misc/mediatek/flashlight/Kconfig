@@ -10,3 +10,8 @@ config CUSTOM_KERNEL_FLASHLIGHT
           Kernel space cameara flashlight driver. You can use this driver
           choose cameara flashlight type.
 
+config CPY83_S00_FLASHLIGHT
+  bool CONFIG_CPY83_S00_FLASHLIGHT
+  default n
+  help
+    CONFIG_CPY83_S00_FLASHLIGHT

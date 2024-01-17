@@ -16,13 +16,27 @@
 #ifdef BUILD_LK
 #define LCD_DEBUG(fmt)  dprintf(CRITICAL, fmt)
 #else
-#define LCD_DEBUG(fmt, args...)  pr_notice("[KERNEL/LCM]"fmt, ##args)
+#define LCD_DEBUG(fmt, args...)  pr_debug("[KERNEL/LCM]"fmt, ##args)
 #endif
 
 LCM_DRIVER *lcm_driver_list[] = {
 #if defined(MTK_LCM_DEVICE_TREE_SUPPORT)
 	&lcm_common_drv,
 #else
+
+#if defined(HX8394F_LD_CPT_5P5_VDO_HD)
+	&hx8394f_dsi_vdo_ld_cpt_lcm_drv,
+#endif
+
+#if defined(OTM1284A_BY_CPT_5P5_VDO_HD_8676)
+	&otm1284a_dsi_vdo_by_cpt_lcm_drv,
+#endif
+#if defined(OTM1283A_BY_LG_5P5_VDO_HD_8676)
+        &otm1283a_dsi_vdo_by_lg_lcm_drv,
+#endif
+#if defined(R61318_LD_LG_5P5_VDO_HD_8676)
+        &r61318_dsi_vdo_ld_lg_lcm_drv,
+#endif
 #if defined(OTM1284A_HD720_DSI_VDO_TM)
 	&otm1284a_hd720_dsi_vdo_tm_lcm_drv,
 #endif
@@ -436,6 +450,10 @@ LCM_DRIVER *lcm_driver_list[] = {
 
 #if defined(HX8392A_DSI_CMD_3LANE)
 	&hx8392a_dsi_cmd_3lane_lcm_drv,
+#endif
+
+#if defined(HX8392A_DSI_CMD_3LANE_QHD)
+	&hx8392a_dsi_cmd_3lane_qhd_lcm_drv,
 #endif
 
 #if defined(HX8392A_DSI_CMD_WVGA)
@@ -917,11 +935,57 @@ LCM_DRIVER *lcm_driver_list[] = {
 	&nt35595_truly_fhd_dsi_vdo_lcm_drv,
 #endif
 
+#if defined(B080UAN01_2_WUXGA_DSI_VDO)
+	&b080uan01_2_wuxga_dsi_vdo_lcm_drv,
+#endif
 #endif
 };
 
 #if defined(MTK_LCM_DEVICE_TREE_SUPPORT)
-unsigned char lcm_name_list[][128] = {
+unsigned char lcm_name_list[][128] = {  
+#if defined(NT35596_YS_AUO_5P5_VDO_FHD_8676)
+    "nt35596_ys_auo",
+#endif
+#if defined(R63315_TIANMA_TM_5P5_VDO_FHD_8676)
+    "r63315_tianma_tm",
+#endif
+//start 2016.04.09 lijianbin@yulong.com add by lijianbin for Y83-s00
+#if defined(HX8394F_LD_CPT_5P5_VDO_HD)
+    "hx8394f_dsi_ld_cpt_vdo",
+#endif
+#if defined(ILI9881C_YS_CMI_5P5_VDO_HD)
+    "ili9881c_dsi_ys_cmi_vdo",
+#endif
+#if defined(ILI9881C_LD_AUO_5P5_VDO_HD)
+    "ili9881c_dsi_ld_auo_vdo",
+#endif
+#if defined(OTM1287A_BY_AUO_5P5_VDO_HD)
+    "otm1287a_dsi_by_auo",
+#endif
+//end 2016.04.09 lijianbin@yulong.com add by lijianbin for Y83-s00
+// add by peihonggang for CP8298
+#if defined(ILI9881C_YS_CPT_ID41_5P0_VDO_HD_8298)
+	"ili9881c_dsi_dj_boe",
+#endif
+#if defined(R61318_DJ_LG_5P0_VDO_HD_8298)
+	"r61318_dsi_dj_lg",
+#endif
+// end by peihonggang
+// add by peihonggang for CP8676_I02
+#if defined(OTM1283A_BY_LG_5P5_VDO_HD_8676)
+	"otm1283a_dsi_by_lg",
+#endif
+#if defined(OTM1284A_BY_CPT_5P5_VDO_HD_8676)
+	"otm1284a_dsi_by_cpt",
+#endif
+#if defined(R61318_LD_LG_5P5_VDO_HD_8676)
+        "r61318_dsi_ld_lg",
+#endif
+#if defined(ILI9881_YS_CPT_5P5_VDO_HD_8676)
+        "ili9881_dsi_ys_cpt",
+#endif
+//end by peihonggang for CP8676_I02
+
 #if defined(HX8392A_DSI_CMD)
 	"hx8392a_dsi_cmd",
 #endif
@@ -930,8 +994,28 @@ unsigned char lcm_name_list[][128] = {
 	"hx8392a_vdo_cmd",
 #endif
 
+#if defined(HX8392A_DSI_CMD_FWVGA)
+	"hx8392a_dsi_cmd_fwvga",
+#endif
+
 #if defined(OTM9608_QHD_DSI_CMD)
-	"otm9608_qhd_dsi_cmd",
+	"otm9608a_qhd_dsi_cmd",
+#endif
+
+#if defined(OTM9608_QHD_DSI_VDO)
+	"otm9608a_qhd_dsi_vdo",
+#endif
+
+#if defined(R63417_FHD_DSI_CMD_TRULY_NT50358)
+	"r63417_fhd_dsi_cmd_truly_nt50358_drv",
+#endif
+
+#if defined(R63417_FHD_DSI_CMD_TRULY_NT50358_QHD)
+	"r63417_fhd_dsi_cmd_truly_nt50358_qhd_drv",
+#endif
+
+#if defined(R63417_FHD_DSI_VDO_TRULY_NT50358)
+	"r63417_fhd_dsi_vdo_truly_nt50358_drv",
 #endif
 };
 #endif
@@ -942,6 +1026,12 @@ unsigned char lcm_name_list[][128] = {
 
 unsigned int lcm_count = sizeof(lcm_driver_list) / sizeof(LCM_DRIVER *);
 LCM_COMPILE_ASSERT(0 != sizeof(lcm_driver_list) / sizeof(LCM_DRIVER *));
+
+/**add by phg for compile for lcm**/
+unsigned int lcm_name_count = sizeof(lcm_name_list) / sizeof(lcm_name_list[0]);
+LCM_COMPILE_ASSERT(0 != sizeof(lcm_name_list) / sizeof(lcm_name_list[0]));
+/**end by phg for compile for lcm**/
+
 #if defined(NT35520_HD720_DSI_CMD_TM) | defined(NT35520_HD720_DSI_CMD_BOE) | \
 	defined(NT35521_HD720_DSI_VDO_BOE) | defined(NT35521_HD720_DSI_VIDEO_TM)
 static unsigned char lcd_id_pins_value = 0xFF;

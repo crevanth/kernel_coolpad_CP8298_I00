@@ -21,7 +21,12 @@
 #include <linux/console.h>
 #include <linux/module.h>
 
+#include <linux/yl_lcd.h>
+
 #define FB_SYSFS_FLAG_ATTR 1
+/*** add for display note in fastmmi mode by yangli@yulong.com 20160125 start ***/
+extern unsigned char yulong_lcd_type[50];
+/*** add for display note in  fastmmi mode by yangli@yulong.com 20160125 end ***/
 
 /**
  * framebuffer_alloc - creates a new frame buffer info structure
@@ -420,6 +425,21 @@ static ssize_t store_fbstate(struct device *device,
 
 	return count;
 }
+/*** add for display note in fastmmi mode by yangli@yulong.com 20160125 start ***/
+static ssize_t show_lcd_type(struct device *device,
+            struct device_attribute *attr, char *buf)
+{
+    return snprintf(buf, PAGE_SIZE, "%s\n", yulong_lcd_type);
+}
+
+static ssize_t store_lcd_type(struct device *device,
+                struct device_attribute *attr,
+                const char *buf, size_t count)
+{
+    return 0;
+}
+
+/*** add for display note in  fastmmi mode by yangli@yulong.com 20160125 end ***/
 
 static ssize_t show_fbstate(struct device *device,
 			    struct device_attribute *attr, char *buf)
@@ -509,6 +529,9 @@ static struct device_attribute device_attrs[] = {
 	__ATTR(stride, S_IRUGO, show_stride, NULL),
 	__ATTR(rotate, S_IRUGO|S_IWUSR, show_rotate, store_rotate),
 	__ATTR(state, S_IRUGO|S_IWUSR, show_fbstate, store_fbstate),
+    /*** add for display note in fastmmi mode by yangli@yulong.com 20160125 start ***/
+    __ATTR(lcd_type, S_IRUGO|S_IWUSR, show_lcd_type, store_lcd_type),
+    /*** add for display note in  fastmmi mode by yangli@yulong.com 20160125 end ***/
 #ifdef CONFIG_FB_BACKLIGHT
 	__ATTR(bl_curve, S_IRUGO|S_IWUSR, show_bl_curve, store_bl_curve),
 #endif

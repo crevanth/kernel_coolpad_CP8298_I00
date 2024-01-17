@@ -485,6 +485,8 @@ static struct platform_driver gsensor_driver = {
 		   }
 };
 
+int lsm6ds3_acc_init_flag = -1; // 0<==>OK -1 <==> fail
+
 static int acc_real_driver_init(void)
 {
 	int i = 0;

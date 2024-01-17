@@ -42,6 +42,7 @@
 #include <mt-plat/upmu_common.h>
 
 
+#define MTK_MULTI_BAT_PROFILE_SUPPORT
 /* ============================================================ // */
 /* define */
 /* ============================================================ // */
@@ -49,7 +50,7 @@
 
 static DEFINE_MUTEX(FGADC_mutex);
 
-int Enable_FGADC_LOG = 0;
+int Enable_FGADC_LOG = 7;
 
 /* ============================================================ // */
 /* global variable */
@@ -175,7 +176,7 @@ signed int d5_count_time_rate = 1;
 signed int g_d_hw_ocv = 0;
 signed int g_vol_bat_hw_ocv = 0;
 signed int g_hw_ocv_before_sleep = 0;
-struct timespec g_rtc_time_before_sleep, xts_before_sleep;
+struct timespec g_rtc_time_before_sleep, xts_before_sleep, g_sleep_total_time;
 signed int g_sw_vbat_temp = 0;
 struct timespec last_oam_run_time;
 
@@ -245,19 +246,34 @@ signed int gFG_min_temperature = 100;
 
 kal_bool gFG_Is_offset_init = KAL_FALSE;
 
+
+void battery_meter_reset_sleep_time(void)
+{
+	g_sleep_total_time.tv_sec = 0;
+	g_sleep_total_time.tv_nsec = 0;
+}
+
+
 #ifdef MTK_MULTI_BAT_PROFILE_SUPPORT
 /*extern int IMM_GetOneChannelValue_Cali(int Channel, int *voltage);*/
 unsigned int g_fg_battery_id = 0;
-
+/*add begin by sunxiaogang@yulong.com 2015.05.27 to add battery id in factory mode*/
+extern int get_device_info(char* buf);
+/*add end gy sunxiaogang@yulong.com*/
 #ifdef MTK_GET_BATTERY_ID_BY_AUXADC
 void fgauge_get_profile_id(void)
 {
 	int id_volt = 0;
 	int id = 0;
-	int ret = 0;
-
-	ret = IMM_GetOneChannelValue_Cali(BATTERY_ID_CHANNEL_NUM, &id_volt);
-	if (ret != 0)
+	//int ret = 0;
+	/*add begin by sunxiaogang@yulong.com 2015.05.27 to add battery id in factory mode*/
+	unsigned char buf[50] = {0};
+	/*add end by sunxiaogang@yulong.com*/
+//	ret = IMM_GetOneChannelValue_Cali(BATTERY_ID_CHANNEL_NUM, &id_volt);
+	id_volt = PMIC_IMM_GetOneChannelValue(MT6328_AUX_TSX,5,1);      //huangqingjun add for multi battery
+	//id_volt = PMIC_IMM_GetOneChannelValue(BATTERY_ID_CHANNEL_NUM,5,1);
+//	if(ret != 0)
+	if(id_volt == 0)
 		bm_print(BM_LOG_CRTI, "[fgauge_get_profile_id]id_volt read fail\n");
 	else
 		bm_print(BM_LOG_CRTI, "[fgauge_get_profile_id]id_volt = %d\n", id_volt);
@@ -275,7 +291,21 @@ void fgauge_get_profile_id(void)
 			g_fg_battery_id = TOTAL_BATTERY_NUMBER - 1;
 		}
 	}
-
+	/*add begin by sunxiaogang@yulong.com 2015.05.27 to add battery id in factory mode*/
+	if (0 == g_fg_battery_id)
+	{
+		sprintf(buf, "baterry: CPCC: %d\n",id_volt);
+	} else if (1 == g_fg_battery_id) {
+		sprintf(buf, "baterry: CPVK: %d\n",id_volt);
+	} else if(2 == g_fg_battery_id) {
+		sprintf(buf, "baterry: CPAT: %d\n",id_volt);
+	} else if(3 == g_fg_battery_id) {
+		sprintf(buf, "baterry: CPTM: %d\n",id_volt);
+	} else {
+		sprintf(buf, "baterry: UNKNOW: %d\n",id_volt);
+	}
+	get_device_info(buf);
+	/*add end by sunxiaogang@yulong.com*/
 	bm_print(BM_LOG_CRTI, "[fgauge_get_profile_id]Battery id (%d)\n", g_fg_battery_id);
 }
 #elif defined(MTK_GET_BATTERY_ID_BY_GPIO)
@@ -477,6 +507,12 @@ int __batt_meter_init_cust_data_from_cust_header(void)
 	batt_meter_cust_data.close_poweroff_wakeup_period = CLOSE_POWEROFF_WAKEUP_PERIOD;
 #endif
 
+#if defined(IS_BATTERY_REMOVE_BY_PMIC)
+	batt_meter_cust_data.vbat_remove_detection = 1;
+#else	/* #if defined(IS_BATTERY_REMOVE_BY_PMIC) */
+	batt_meter_cust_data.vbat_remove_detection = 0;
+#endif	/* #if defined(IS_BATTERY_REMOVE_BY_PMIC) */
+
 	return 0;
 }
 
@@ -523,6 +559,13 @@ static void __batt_meter_parse_table(const struct device_node *np,
 		profile_p++;
 		if ((idx++) >= (saddles * 2))
 			break;
+	}
+
+	/* error handle */
+	if (0 == idx) {
+		battery_log(BAT_LOG_CRTI,
+			"[%s] cannot find %s in dts\n", __func__, node_srting);
+		return;
 	}
 
 	/* use last data to fill with the rest array
@@ -574,8 +617,8 @@ int __batt_meter_init_cust_data_from_dt(void)
 			battery_log(BAT_LOG_CRTI, "batt_temperature_table: addr: %d, val: %d\n",
 				    addr, val);
 		}
-		Batt_Temperature_Table[idx / 2].BatteryTemp = addr;
-		Batt_Temperature_Table[idx / 2].TemperatureR = val;
+		Batt_Temperature_Table[g_fg_battery_id][idx / 2].BatteryTemp = addr;
+		Batt_Temperature_Table[g_fg_battery_id][idx / 2].TemperatureR = val;
 
 		idx++;
 		if (idx >= num * 2)
@@ -751,6 +794,9 @@ int __batt_meter_init_cust_data_from_dt(void)
 	__batt_meter_parse_node(np, "close_poweroff_wakeup_period",
 		&batt_meter_cust_data.close_poweroff_wakeup_period);
 
+	__batt_meter_parse_node(np, "vbat_remove_detection",
+		&batt_meter_cust_data.vbat_remove_detection);
+
 	of_node_put(np);
 
 	return 0;
@@ -792,7 +838,7 @@ int BattThermistorConverTemp(int Res)
 	int RES1 = 0, RES2 = 0;
 	int TBatt_Value = -200, TMP1 = 0, TMP2 = 0;
 
-	BATT_TEMPERATURE *batt_temperature_table = &Batt_Temperature_Table[g_fg_battery_id];
+	BATT_TEMPERATURE *batt_temperature_table = Batt_Temperature_Table[g_fg_battery_id];
 
 	if (Res >= batt_temperature_table[0].TemperatureR) {
 		TBatt_Value = -20;
@@ -1137,50 +1183,42 @@ int fgauge_get_saddles_r_table(void)
 
 BATTERY_PROFILE_STRUCT_P fgauge_get_profile(unsigned int temperature)
 {
-	switch (temperature) {
-	case batt_meter_cust_data.temperature_t0:
+	if (temperature == batt_meter_cust_data.temperature_t0)
 		return &battery_profile_t0[g_fg_battery_id][0];
-		/*break;*/
-	case batt_meter_cust_data.temperature_t1:
+
+	if (temperature == batt_meter_cust_data.temperature_t1)
 		return &battery_profile_t1[g_fg_battery_id][0];
-		/*break;*/
-	case batt_meter_cust_data.temperature_t2:
+
+	if (temperature == batt_meter_cust_data.temperature_t2)
 		return &battery_profile_t2[g_fg_battery_id][0];
-		/*break;*/
-	case batt_meter_cust_data.temperature_t3:
+
+	if (temperature == batt_meter_cust_data.temperature_t3)
 		return &battery_profile_t3[g_fg_battery_id][0];
-		/*break;*/
-	case batt_meter_cust_data.temperature_t:
+
+	if (temperature == batt_meter_cust_data.temperature_t)
 		return &battery_profile_temperature[0];
-		/*break;*/
-	default:
-		return NULL;
-		/*break;*/
-	}
+
+	return NULL;
 }
 
 R_PROFILE_STRUCT_P fgauge_get_profile_r_table(unsigned int temperature)
 {
-	switch (temperature) {
-	case batt_meter_cust_data.temperature_t0:
+	if (temperature == batt_meter_cust_data.temperature_t0)
 		return &r_profile_t0[g_fg_battery_id][0];
-		/*break;*/
-	case batt_meter_cust_data.temperature_t1:
+
+	if (temperature == batt_meter_cust_data.temperature_t1)
 		return &r_profile_t1[g_fg_battery_id][0];
-		/*break;*/
-	case batt_meter_cust_data.temperature_t2:
+
+	if (temperature == batt_meter_cust_data.temperature_t2)
 		return &r_profile_t2[g_fg_battery_id][0];
-		/*break;*/
-	case batt_meter_cust_data.temperature_t3:
+
+	if (temperature == batt_meter_cust_data.temperature_t3)
 		return &r_profile_t3[g_fg_battery_id][0];
-		/*break;*/
-	case batt_meter_cust_data.temperature_t:
+
+	if (temperature == batt_meter_cust_data.temperature_t)
 		return &r_profile_temperature[0];
-		/*break;*/
-	default:
-		return NULL;
-		/*break;*/
-	}
+
+	return NULL;
 }
 #else
 int fgauge_get_saddles(void)
@@ -1962,6 +2000,8 @@ void dod_init(void)
 		gFG_capacity_by_v = gFG_capacity_by_v_init;
 	}
 #endif
+
+
 #if defined(HW_FG_FORCE_USE_SW_OCV)
 	gFG_capacity_by_v = gFG_capacity_by_v_init;
 	bm_print(BM_LOG_CRTI, "[FGADC] HW_FG_FORCE_USE_SW_OCV : HW_SOC=%d, SW_SOC = %d\n",
@@ -1978,7 +2018,8 @@ void dod_init(void)
 
 
 #if defined(IS_BATTERY_REMOVE_BY_PMIC)
-	if (is_battery_remove_pmic() == 0 && (g_rtc_fg_soc != 0)) {
+	if (is_battery_remove_pmic() == 0 && (g_rtc_fg_soc != 0)
+		&& batt_meter_cust_data.vbat_remove_detection) {
 		bm_print(BM_LOG_CRTI, "[FGADC]is_battery_remove()==0 , use rtc_fg_soc%d\n",
 			 g_rtc_fg_soc);
 		gFG_capacity_by_v = g_rtc_fg_soc;
@@ -2910,7 +2951,7 @@ void fgauge_algo_run_init(void)
 		/*stop charging for vbat measurement */
 		battery_charging_control(CHARGING_CMD_ENABLE, &charging_enable);
 
-	msleep(50);
+	msleep(500);//modify by sunxiaogang@yulong.com 2014.04.22 for the battery capacity is higher when power on with charger.
 #endif
 /* 1. Get Raw Data */
 	gFG_voltage = battery_meter_get_battery_voltage(KAL_TRUE);
@@ -2924,6 +2965,7 @@ void fgauge_algo_run_init(void)
 	bm_print(BM_LOG_CRTI, "[FGADC] SWOCV : %d,%d,%d,%d,%d,%d\n",
 		 gFG_voltage_init, gFG_voltage, gFG_current, gFG_Is_Charging, gFG_resistance_bat,
 		 gFG_compensate_value);
+
 #ifdef INIT_SOC_BY_SW_SOC
 	charging_enable = KAL_TRUE;
 	battery_charging_control(CHARGING_CMD_ENABLE, &charging_enable);
@@ -3124,15 +3166,19 @@ signed int get_dynamic_period(int first_use, int first_wakeup_time, int battery_
 
 	signed int car_instant = 0;
 	signed int current_instant = 0;
-	static signed int car_sleep = 0x12345678;
-	signed int car_wakeup = 0;
 	static signed int last_time;
-
-	signed int ret_val = -1;
-	signed int I_sleep = 0;
-	signed int new_time = 0;
 	signed int vbat_val = 0;
 	int ret = 0;
+
+#if defined(FG_BAT_INT)
+#else
+	signed int I_sleep = 0;
+	signed int new_time = 0;
+	signed int ret_val = -1;
+	signed int car_wakeup = 0;
+	static signed int car_sleep = 0x12345678;
+
+#endif
 
 	vbat_val = g_sw_vbat_temp;
 
@@ -3143,7 +3189,21 @@ signed int get_dynamic_period(int first_use, int first_wakeup_time, int battery_
 		car_instant = car_instant - (car_instant * 2);
 
 
+	if (BMT_status.UI_SOC != BMT_status.SOC) {
+		last_time = 10;
+		g_spm_timer = 10;
+		bm_print(BM_LOG_CRTI, "[get_dynamic_period] UISOC:%d SOC:%d vbat:%d current:%d car:%d new_time:%d\n",
+			BMT_status.UI_SOC, BMT_status.SOC, vbat_val, current_instant, car_instant, g_spm_timer);
+		return g_spm_timer;
+	}
+
+
 	if (vbat_val > batt_meter_cust_data.vbat_normal_wakeup) {	/* 3.6v */
+
+#if defined(FG_BAT_INT)
+				g_spm_timer = LOW_POWER_WAKEUP_PERIOD * 3;
+#else
+
 		car_wakeup = car_instant;
 
 		if (last_time == 0)
@@ -3181,6 +3241,7 @@ signed int get_dynamic_period(int first_use, int first_wakeup_time, int battery_
 		car_sleep = car_wakeup;
 		last_time = ret_val;
 		g_spm_timer = ret_val;
+#endif
 	} else if (vbat_val > batt_meter_cust_data.vbat_low_power_wakeup) {	/* 3.5v */
 		g_spm_timer = batt_meter_cust_data.low_power_wakeup_period;	/* 5 min */
 	} else {
@@ -4415,7 +4476,10 @@ static int battery_meter_suspend(struct platform_device *dev, pm_message_t state
 		if (_g_bat_sleep_total_time < g_spm_timer)
 			return 0;
 
-		_g_bat_sleep_total_time = 0;
+
+		g_sleep_total_time.tv_sec = 0;
+		g_sleep_total_time.tv_nsec = 0;
+
 		battery_meter_ctrl(BATTERY_METER_CMD_GET_HW_OCV, &g_hw_ocv_before_sleep);
 	}
 #endif
@@ -4627,10 +4691,16 @@ static int battery_meter_resume(struct platform_device *dev)
 
 	get_monotonic_boottime(&rtc_time_after_sleep);
 
-	_g_bat_sleep_total_time += rtc_time_after_sleep.tv_sec - g_rtc_time_before_sleep.tv_sec;
+	g_sleep_total_time = timespec_add(g_sleep_total_time,
+		timespec_sub(rtc_time_after_sleep, g_rtc_time_before_sleep));
+	_g_bat_sleep_total_time = g_sleep_total_time.tv_sec;
+
 	battery_log(BAT_LOG_CRTI,
-		    "[battery_meter_resume] sleep time = %d, g_spm_timer = %d\n",
-		    _g_bat_sleep_total_time, g_spm_timer);
+			"[battery_meter_resume] sleep time = %d, g_spm_timer = %d , %ld %ld %ld %ld %ld %ld\n",
+			_g_bat_sleep_total_time, g_spm_timer,
+			g_rtc_time_before_sleep.tv_sec, g_rtc_time_before_sleep.tv_nsec,
+			rtc_time_after_sleep.tv_sec, rtc_time_after_sleep.tv_nsec,
+			g_sleep_total_time.tv_sec, g_sleep_total_time.tv_nsec);
 
 #if defined(SOC_BY_HW_FG)
 #ifdef MTK_ENABLE_AGING_ALGORITHM

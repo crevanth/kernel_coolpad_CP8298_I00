@@ -148,6 +148,7 @@ kal_bool skip_battery_update = KAL_FALSE;
 
 unsigned int g_batt_temp_status = TEMP_POS_NORMAL;
 
+extern unsigned int g_fg_battery_id;  //add by sunxiaogang@yulong.com 2015.05.11 for battery type detect
 
 kal_bool battery_suspended = KAL_FALSE;
 /*#ifdef MTK_ENABLE_AGING_ALGORITHM
@@ -179,6 +180,8 @@ struct battery_custom_data batt_cust_data;
 #define Get_META_BAT_VOL _IOW('k', 10, int)
 #define Get_META_BAT_SOC _IOW('k', 11, int)
 /* add for meta tool----------------------------------------- */
+//huangqingjun add
+#define RECOVERY_CHARGING_VOLTAGE 6500
 
 static struct class *adc_cali_class;
 static int adc_cali_major;
@@ -231,6 +234,10 @@ static int cmd_discharging = -1;
 static int adjust_power = -1;
 static int suspend_discharging = -1;
 
+#if !defined(CONFIG_POWER_EXT)
+static int is_uisoc_ever_100 = KAL_FALSE;
+#endif
+
 /* ////////////////////////////////////////////////////////////////////////////// */
 /* FOR ANDROID BATTERY SERVICE */
 /* ////////////////////////////////////////////////////////////////////////////// */
@@ -273,6 +280,8 @@ struct battery_data {
 	int capacity_smb;
 	int present_smb;
 	int adjust_power;
+	int BAT_Charger_Type;   //add by sunxiaogang@yulong.com 2015.03.24 for charger type detect
+	int BAT_Factory_Type;   //add by sunxiaogang@yulong.com 2015.05.11 for battery type detect
 };
 
 static enum power_supply_property wireless_props[] = {
@@ -310,6 +319,8 @@ static enum power_supply_property battery_props[] = {
 	POWER_SUPPLY_PROP_present_smb,
 	/* ADB CMD Discharging */
 	POWER_SUPPLY_PROP_adjust_power,
+	POWER_SUPPLY_PROP_Charger_Type, //add by sunxiaogang@yulong.com 2015.03.24 for charger type detect
+	POWER_SUPPLY_PROP_Battery_Type, //add by sunxiaogang@yulong.com 2015.05.11 for battery type detect
 };
 
 /*void check_battery_exist(void);*/
@@ -416,7 +427,8 @@ void wake_up_bat(void)
 #ifdef MTK_ENABLE_AGING_ALGORITHM
 	suspend_time = 0;
 #endif
-	_g_bat_sleep_total_time = 0;
+	battery_meter_reset_sleep_time();
+
 	wake_up(&bat_thread_wq);
 }
 EXPORT_SYMBOL(wake_up_bat);
@@ -433,11 +445,25 @@ void wake_up_bat2(void)
 #ifdef MTK_ENABLE_AGING_ALGORITHM
 	suspend_time = 0;
 #endif
-	_g_bat_sleep_total_time = 0;
+	battery_meter_reset_sleep_time();
 	wake_up(&bat_thread_wq);
 }
 EXPORT_SYMBOL(wake_up_bat2);
 #endif				/* #ifdef FG_BAT_INT */
+
+void wake_up_bat3(void)
+{
+	battery_log(BAT_LOG_CRTI, "[BATTERY] wake_up_bat3. \r\n");
+
+	bat_thread_timeout = KAL_TRUE;
+#ifdef MTK_ENABLE_AGING_ALGORITHM
+	suspend_time = 0;
+#endif
+	battery_meter_reset_sleep_time();
+	wake_up(&bat_thread_wq);
+}
+EXPORT_SYMBOL(wake_up_bat3);
+
 
 
 
@@ -612,7 +638,18 @@ static int battery_get_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_adjust_power:
 		val->intval = data->adjust_power;
 		break;
-
+	/*add begin by sunxiaogang@yulong.com 2015.03.24 for charger type detect*/
+	case POWER_SUPPLY_PROP_Charger_Type :
+		val->intval = data->BAT_Charger_Type;
+		battery_xlog_printk(BAT_LOG_CRTI, "[sunxiaogang] charger_type = %d\n",val->intval);
+		break;
+	/*add end by sunxiaogang@yulong.com*/
+	/*add begin by sunxiaogang@yulong.com 2015.05.11 for battery type detect*/
+	case POWER_SUPPLY_PROP_Battery_Type :
+		val->intval = data->BAT_Factory_Type;
+		battery_xlog_printk(BAT_LOG_CRTI, "[sunxiaogang] battery_type = %d\n",val->intval);
+		break;
+	/*add end by sunxiaogang@yulong.com*/
 	default:
 		ret = -EINVAL;
 		break;
@@ -681,6 +718,8 @@ static struct battery_data battery_main = {
 	.present_smb = 0,
 	/* ADB CMD discharging */
 	.adjust_power = -1,
+	.BAT_Charger_Type = STANDARD_CHARGER,   //add by sunxiaogang@yulong.com 2015.03.24 for charger type detect
+	.BAT_Factory_Type = FACTORY_CPCC,   //add by sunxiaogang@yulong.com 2015.05.11 for battery type detect
 #else
 	.BAT_STATUS = POWER_SUPPLY_STATUS_NOT_CHARGING,
 	.BAT_HEALTH = POWER_SUPPLY_HEALTH_GOOD,
@@ -699,6 +738,8 @@ static struct battery_data battery_main = {
 	.present_smb = 0,
 	/* ADB CMD discharging */
 	.adjust_power = -1,
+	.BAT_Charger_Type = STANDARD_CHARGER,   //add by sunxiaogang@yulong.com 2015.03.24 for charger type detect
+	.BAT_Factory_Type = FACTORY_CPCC,   //add by sunxiaogang@yulong.com 2015.05.11 for battert type detect
 #endif
 };
 
@@ -1686,8 +1727,19 @@ static kal_bool mt_battery_100Percent_tracking_check(void)
 			resetBatteryMeter = KAL_TRUE;
 		}
 
-		battery_log(BAT_LOG_CRTI, "[100percent], UI_SOC(%d), reset(%d)\n",
-			    BMT_status.UI_SOC, resetBatteryMeter);
+		if (BMT_status.UI_SOC == 100)
+			is_uisoc_ever_100 = KAL_TRUE;
+
+		if ((BMT_status.UI_SOC - BMT_status.SOC) > 10 && is_uisoc_ever_100 == KAL_TRUE) {
+			is_uisoc_ever_100 = KAL_FALSE;
+			BMT_status.bat_full = KAL_FALSE;
+		}
+
+		battery_log(BAT_LOG_CRTI, "[100percent], UI_SOC(%d), reset(%d) bat_full(%d) ever100(%d)\n",
+			    BMT_status.UI_SOC, resetBatteryMeter, BMT_status.bat_full, is_uisoc_ever_100);
+	} else if (is_uisoc_ever_100 == KAL_TRUE) {
+			battery_log(BAT_LOG_CRTI, "[100percent-ever100],UI_SOC=%d SOC=%d\n",
+			BMT_status.UI_SOC, BMT_status.UI_SOC);
 	} else {
 		/* charging is not full,  UI keep 99% if reaching 100%, */
 
@@ -1705,7 +1757,7 @@ static kal_bool mt_battery_100Percent_tracking_check(void)
 	return resetBatteryMeter;
 }
 
-
+#if 0
 static kal_bool mt_battery_nPercent_tracking_check(void)
 {
 	kal_bool resetBatteryMeter = KAL_FALSE;
@@ -1757,23 +1809,55 @@ static kal_bool mt_battery_nPercent_tracking_check(void)
 	return resetBatteryMeter;
 
 }
+#endif
 
 static kal_bool mt_battery_0Percent_tracking_check(void)
 {
 	kal_bool resetBatteryMeter = KAL_TRUE;
-
-	if (BMT_status.UI_SOC <= 0) {
-		BMT_status.UI_SOC = 0;
-	} else {
-		if (BMT_status.bat_vol > SYSTEM_OFF_VOLTAGE && BMT_status.UI_SOC > 1)
-			BMT_status.UI_SOC--;
-		else if (BMT_status.bat_vol <= SYSTEM_OFF_VOLTAGE)
-			BMT_status.UI_SOC--;
-
+//begin TFS_258277 modify by sunxiaogang@yulong.com to optimize low power and full capacity battery curve 2015-06-25
+	static unsigned int timer_counter = 0;
+	unsigned int NUM_COUNT = 0;
+	if(BMT_status.bat_vol > 3400)
+	{
+		NUM_COUNT = V_0PERCENT_TRACKING_TIME/BAT_TASK_PERIOD;
 	}
-
-	battery_log(BAT_LOG_CRTI, "0Percent, VBAT < %d UI_SOC=%d\r\n", SYSTEM_OFF_VOLTAGE,
-		    BMT_status.UI_SOC);
+	else if(BMT_status.bat_vol > 3350)
+	{
+		NUM_COUNT = (V_0PERCENT_TRACKING_TIME-20)/BAT_TASK_PERIOD;
+	}
+	else
+	{
+		NUM_COUNT = (V_0PERCENT_TRACKING_TIME-40)/BAT_TASK_PERIOD;
+	}
+	if(BMT_status.UI_SOC <= 0)
+	{
+		BMT_status.UI_SOC=0;
+	} else {
+		if (BMT_status.bat_vol > SYSTEM_OFF_VOLTAGE && BMT_status.UI_SOC > 1) {
+			if(timer_counter >= NUM_COUNT)
+			{
+				BMT_status.UI_SOC--;
+				timer_counter = 0;
+			}
+			else
+			{
+				timer_counter ++;
+			}
+		} else if (BMT_status.bat_vol <= SYSTEM_OFF_VOLTAGE) {
+			if(timer_counter >= NUM_COUNT)
+			{
+				BMT_status.UI_SOC--;
+				timer_counter = 0;
+			}
+			else
+			{
+				timer_counter ++;
+			}
+		}
+	}
+	battery_log(BAT_LOG_CRTI, "0Percent, VBAT = %d UI_SOC=%d,time = %d:\r\n", BMT_status.bat_vol,
+                BMT_status.UI_SOC,timer_counter);
+//end TFS_258277 modify by sunxiaogang@yulong.com to optimize low power and full capacity battery curve 2015-06-25
 
 	return resetBatteryMeter;
 }
@@ -1844,6 +1928,29 @@ static void battery_update(struct battery_data *bat_data)
 	bat_data->BAT_batt_vol = BMT_status.bat_vol;
 	bat_data->BAT_batt_temp = BMT_status.temperature * 10;
 	bat_data->BAT_PRESENT = BMT_status.bat_exist;
+	//bat_data->BAT_Factory_Type = g_fg_battery_id;
+	/*add begin by sunxiaogang@yulong.com 2015.05.11 for battery type detect*/
+	switch (g_fg_battery_id)
+	{
+		case 0: bat_data->BAT_Factory_Type = FACTORY_CPCC;  break;
+		case 1: bat_data->BAT_Factory_Type = FACTORY_CPVK;  break;
+		case 2: bat_data->BAT_Factory_Type = FACTORY_CPAT;  break;
+		case 3: bat_data->BAT_Factory_Type = FACTORY_CPTM;  break;
+		default: bat_data->BAT_Factory_Type = FACTORY_UNKNOWN;  break;
+	}
+	/*add end by sunxiaogang@yulong.com*/
+
+	/*add begin by sunxiaogang@yulong.com 2015.03.24 for charger type detect*/
+	if ((BMT_status.charger_exist == KAL_TRUE)&&(BMT_status.bat_charging_state == CHR_CC)&&
+		(BMT_status.UI_SOC <= 80)&&(BMT_status.ICharging <= 800))
+	{
+		bat_data->BAT_Charger_Type = NONSTANDARD_CHARGER;
+	} else {
+		bat_data->BAT_Charger_Type = STANDARD_CHARGER;
+	}
+	battery_xlog_printk(BAT_LOG_CRTI, "[sunxiaogang] charging_state = %d,Icharging = %d,charger_type = %d\n",
+			BMT_status.bat_charging_state,BMT_status.ICharging,bat_data->BAT_Charger_Type);
+	/*add end by sunxiaogang@yulong.com*/
 
 	if ((BMT_status.charger_exist == KAL_TRUE) && (BMT_status.bat_charging_state != CHR_ERROR)) {
 		if (BMT_status.bat_exist) {	/* charging */
@@ -1866,19 +1973,32 @@ static void battery_update(struct battery_data *bat_data)
 		if (BMT_status.bat_vol <= batt_cust_data.v_0percent_tracking)
 			resetBatteryMeter = mt_battery_0Percent_tracking_check();
 		else
-			resetBatteryMeter = mt_battery_nPercent_tracking_check();
+			//resetBatteryMeter = mt_battery_nPercent_tracking_check();
+			resetBatteryMeter = KAL_FALSE; //TFS_193258 modifed by zhaoyoufei@yulong.com to remove tracking function 2015-01-27
 	}
 
 	if (resetBatteryMeter == KAL_TRUE) {
 		battery_meter_reset();
 	} else {
-		if (bat_is_recharging_phase() == KAL_TRUE) {
+		/*if (BMT_status.bat_full == KAL_TRUE && is_uisoc_ever_100 == KAL_TRUE) {*/
+		/*modify begin by sunxiaogang@yulong.com 2015.05.14 for battery capacity keep 100% after charge full
+               and never decrease even the battery voltage goes down*/
+               #if defined(CONFIG_YULONG_BQ24296_SUPPORT)
+               mt_battery_Sync_UI_Percentage_to_Real();
+               if(BMT_status.UI_SOC < 100)
+               {
+                      BMT_status.bat_full = KAL_FALSE;
+               }
+               #else
+               if (bat_is_recharging_phase() == KAL_TRUE) {
 			BMT_status.UI_SOC = 100;
 			battery_log(BAT_LOG_CRTI, "[recharging] UI_SOC=%d, SOC=%d\n",
 				    BMT_status.UI_SOC, BMT_status.SOC);
 		} else {
 			mt_battery_Sync_UI_Percentage_to_Real();
 		}
+		#endif
+               /*modify end by sunxiaogang@yulong.com 2015.05.14*/
 	}
 
 	battery_log(BAT_LOG_CRTI, "UI_SOC=(%d), resetBatteryMeter=(%d)\n",
@@ -1915,7 +2035,7 @@ static void battery_update(struct battery_data *bat_data)
 	if (bat_data->BAT_CAPACITY <= DLPT_POWER_OFF_THD) {
 		static signed char cnt;
 
-		battery_log(BAT_LOG_CRTI, "[DLPT_POWER_OFF_EN] run\n");
+		battery_log(BAT_LOG_FULL, "[DLPT_POWER_OFF_EN] run\n");
 
 		if (dlpt_check_power_off() == 1) {
 			bat_data->BAT_CAPACITY = 0;
@@ -1928,7 +2048,7 @@ static void battery_update(struct battery_data *bat_data)
 		} else
 			cnt = 0;
 	} else {
-		battery_log(BAT_LOG_CRTI, "[DLPT_POWER_OFF_EN] disable(%d)\n",
+		battery_log(BAT_LOG_FULL, "[DLPT_POWER_OFF_EN] disable(%d)\n",
 			    bat_data->BAT_CAPACITY);
 	}
 #endif
@@ -2339,13 +2459,14 @@ void mt_battery_GetBatteryData(void)
 		g_battery_soc_ready = KAL_TRUE;
 
 	battery_log(BAT_LOG_CRTI,
-		    "AvgVbat=(%d),bat_vol=(%d),AvgI=(%d),I=(%d),VChr=(%d),AvgT=(%d),T=(%d),pre_SOC=(%d),SOC=(%d),ZCV=(%d)\n",
-		    BMT_status.bat_vol, bat_vol, BMT_status.ICharging, ICharging,
-		    BMT_status.charger_vol, BMT_status.temperature, temperature,
-		    previous_SOC, BMT_status.SOC, BMT_status.ZCV);
-
+	"AvgVbat=(%d,%d),AvgI=(%d,%d),VChr=%d,AvgT=(%d,%d),SOC=(%d,%d),UI_SOC=%d,ZCV=%d bcct:%d:%d I:%d\n",
+		BMT_status.bat_vol, bat_vol, BMT_status.ICharging, ICharging,
+		BMT_status.charger_vol, BMT_status.temperature, temperature,
+		previous_SOC, BMT_status.SOC, BMT_status.UI_SOC, BMT_status.ZCV,
+		g_bcct_flag, get_usb_current_unlimited(), get_bat_charging_current_level());
 
 }
+
 
 
 static PMU_STATUS mt_battery_CheckBatteryTemp(void)
@@ -2393,6 +2514,8 @@ static PMU_STATUS mt_battery_CheckBatteryTemp(void)
 static PMU_STATUS mt_battery_CheckChargerVoltage(void)
 {
 	PMU_STATUS status = PMU_STATUS_OK;
+	static bool low_vol_record=false;  //huangqingjun add for recovery
+
 #if defined(CONFIG_MTK_DUAL_INPUT_CHARGER_SUPPORT)
 	unsigned int v_charger_max = DISO_data.hv_voltage;
 #endif
@@ -2404,17 +2527,37 @@ static PMU_STATUS mt_battery_CheckChargerVoltage(void)
 				battery_log(BAT_LOG_CRTI, "[BATTERY]Charger under voltage!!\r\n");
 				BMT_status.bat_charging_state = CHR_ERROR;
 				status = PMU_STATUS_FAIL;
+				low_vol_record=true;   //huangqingjun add flag
 			}
-		}
+//begin TFS_158881 add by zhaoyoufei@yulong.com  for recovery charging after under or over voltage 2014-12-18
+			if ((low_vol_record==true) && (BMT_status.charger_vol>=V_CHARGER_MIN)) {
+				battery_log(BAT_LOG_CRTI,  "[BATTERY] recovery charging afer under voltage !! \r\n");
+				BMT_status.charger_protect_status = 0;
+				BMT_status.bat_charging_state = CHR_PRE;
+				status = PMU_STATUS_OK;
+				low_vol_record=false;
+			}
+//end TFS_158881 add by zhaoyoufei@yulong.com  for recovery charging after under or over voltage 2014-12-18
+
 #if !defined(CONFIG_MTK_DUAL_INPUT_CHARGER_SUPPORT)
-		if (BMT_status.charger_vol >= batt_cust_data.v_charger_max) {
+			if (BMT_status.charger_vol >= batt_cust_data.v_charger_max) {
 #else
-		if (BMT_status.charger_vol >= v_charger_max) {
+			if (BMT_status.charger_vol >= v_charger_max) {
 #endif
-			battery_log(BAT_LOG_CRTI, "[BATTERY]Charger over voltage !!\r\n");
-			BMT_status.charger_protect_status = charger_OVER_VOL;
-			BMT_status.bat_charging_state = CHR_ERROR;
-			status = PMU_STATUS_FAIL;
+				battery_log(BAT_LOG_CRTI, "[BATTERY]Charger over voltage !!\r\n");
+				BMT_status.charger_protect_status = charger_OVER_VOL;
+				BMT_status.bat_charging_state = CHR_ERROR;
+				status = PMU_STATUS_FAIL;
+			}
+//begin TFS_158881 add by zhaoyoufei@yulong.com  for recovery charging after under or over voltage 2014-12-18
+			if(( BMT_status.charger_protect_status==charger_OVER_VOL)&&(BMT_status.charger_vol<=RECOVERY_CHARGING_VOLTAGE))
+			{
+				battery_xlog_printk(BAT_LOG_CRTI,  "[BATTERY] recovery charging afer over voltage !! \r\n");
+				BMT_status.charger_protect_status = 0;
+				BMT_status.bat_charging_state = CHR_PRE;
+				status = PMU_STATUS_OK;
+			}
+//end TFS_158881 add by zhaoyoufei@yulong.com  for recovery charging after under or over voltage 2014-12-18
 		}
 	}
 
@@ -2725,13 +2868,13 @@ static void mt_battery_update_status(void)
 #else
 	{
 		if (skip_battery_update == KAL_FALSE) {
-			battery_log(BAT_LOG_CRTI, "mt_battery_update_status.\n");
+			battery_log(BAT_LOG_FULL, "mt_battery_update_status.\n");
 			usb_update(&usb_main);
 			ac_update(&ac_main);
 			wireless_update(&wireless_main);
 			battery_update(&battery_main);
 		} else {
-			battery_log(BAT_LOG_CRTI, "skip mt_battery_update_status.\n");
+			battery_log(BAT_LOG_FULL, "skip mt_battery_update_status.\n");
 			skip_battery_update = KAL_FALSE;
 		}
 	}
@@ -2868,7 +3011,7 @@ static void mt_battery_charger_detect_check(void)
 		BMT_status.TOPOFF_charging_time = 0;
 		BMT_status.POSTFULL_charging_time = 0;
 
-		battery_log(BAT_LOG_CRTI, "[BAT_thread]Cable out \r\n");
+		battery_log(BAT_LOG_FULL, "[BAT_thread]Cable out \r\n");
 
 		mt_usb_disconnect();
 
@@ -2876,7 +3019,7 @@ static void mt_battery_charger_detect_check(void)
 		is_ta_connect = KAL_FALSE;
 		ta_check_chr_type = KAL_TRUE;
 		ta_cable_out_occur = KAL_TRUE;
-		battery_log(BAT_LOG_CRTI, "[PE+] Cable OUT\n");
+		battery_log(BAT_LOG_FULL, "[PE+] Cable OUT\n");
 #endif
 
 #ifdef CONFIG_MTK_BQ25896_SUPPORT
@@ -2894,7 +3037,7 @@ static void mt_battery_charger_detect_check(void)
 static void mt_kpoc_power_off_check(void)
 {
 #ifdef CONFIG_MTK_KERNEL_POWER_OFF_CHARGING
-	battery_log(BAT_LOG_CRTI,
+	battery_log(BAT_LOG_FULL,
 		    "[mt_kpoc_power_off_check] , chr_vol=%d, boot_mode=%d\r\n",
 		    BMT_status.charger_vol, g_platform_boot_mode);
 	if (g_platform_boot_mode == KERNEL_POWER_OFF_CHARGING_BOOT
@@ -3031,6 +3174,7 @@ void do_chrdet_int_task(void)
 }
 
 
+
 void BAT_thread(void)
 {
 	static kal_bool battery_meter_initilized = KAL_FALSE;
@@ -3039,7 +3183,21 @@ void BAT_thread(void)
 		battery_meter_initial();	/* move from battery_probe() to decrease booting time */
 		BMT_status.nPercent_ZCV = battery_meter_get_battery_nPercent_zcv();
 		battery_meter_initilized = KAL_TRUE;
+#if defined(CONFIG_POWER_EXT)
+#else
+		BMT_status.SOC = battery_meter_get_battery_percentage();
+		BMT_status.UI_SOC = BMT_status.SOC;
+		BMT_status.ZCV = battery_meter_get_battery_zcv();
+
+		BMT_status.temperatureV = battery_meter_get_tempV();
+		BMT_status.temperatureR = battery_meter_get_tempR(BMT_status.temperatureV);
+		BMT_status.bat_vol = battery_meter_get_battery_voltage(KAL_TRUE);
+		BMT_status.temperature = battery_meter_get_battery_temperature();
+		battery_update(&battery_main);
+#endif
+
 	}
+
 
 	mt_battery_charger_detect_check();
 	mt_battery_GetBatteryData();
@@ -3131,6 +3289,7 @@ int bat_thread_kthread(void *x)
 	return 0;
 }
 
+
 void bat_thread_wakeup(void)
 {
 	battery_log(BAT_LOG_FULL, "******** battery : bat_thread_wakeup  ********\n");
@@ -3140,7 +3299,7 @@ void bat_thread_wakeup(void)
 #ifdef MTK_ENABLE_AGING_ALGORITHM
 	suspend_time = 0;
 #endif
-	_g_bat_sleep_total_time = 0;
+	battery_meter_reset_sleep_time();
 	wake_up(&bat_thread_wq);
 }
 
@@ -4341,7 +4500,7 @@ static void battery_timer_pause(void)
 	battery_suspended = KAL_TRUE;
 	mutex_unlock(&bat_mutex);
 
-	battery_log(BAT_LOG_CRTI, "@bs=1@\n");
+	battery_log(BAT_LOG_FULL, "@bs=1@\n");
 #endif
 
 	get_monotonic_boottime(&g_bat_time_before_sleep);
@@ -4388,7 +4547,7 @@ static void battery_timer_resume(void)
 	hrtimer_start(&charger_hv_detect_timer, hvtime, HRTIMER_MODE_REL);
 
 	battery_suspended = KAL_FALSE;
-	battery_log(BAT_LOG_CRTI, "@bs=0@\n");
+	battery_log(BAT_LOG_FULL, "@bs=0@\n");
 	mutex_unlock(&bat_mutex);
 
 #endif
@@ -4856,13 +5015,13 @@ static int battery_pm_event(struct notifier_block *notifier, unsigned long pm_ev
 	case PM_HIBERNATION_PREPARE:	/* Going to hibernate */
 	case PM_RESTORE_PREPARE:	/* Going to restore a saved image */
 	case PM_SUSPEND_PREPARE:	/* Going to suspend the system */
-		pr_warn("[%s] pm_event %lu\n", __func__, pm_event);
+		pr_debug("[%s] pm_event %lu\n", __func__, pm_event);
 		battery_timer_pause();
 		return NOTIFY_DONE;
 	case PM_POST_HIBERNATION:	/* Hibernation finished */
 	case PM_POST_SUSPEND:	/* Suspend finished */
 	case PM_POST_RESTORE:	/* Restore failed */
-		pr_warn("[%s] pm_event %lu\n", __func__, pm_event);
+		pr_debug("[%s] pm_event %lu\n", __func__, pm_event);
 		battery_timer_resume();
 		return NOTIFY_DONE;
 	}

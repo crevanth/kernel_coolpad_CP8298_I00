@@ -60,7 +60,15 @@ do {\
 #define battery_log(num, fmt, args...) \
 do {\
 	if (Enable_BATDRV_LOG >= (int)num) \
+		switch (num) {\
+		case BAT_LOG_CRTI:\
+			pr_err(fmt, ##args); \
+			break; \
+			/*fall-through*/\
+		default: \
 		pr_debug(fmt, ##args); \
+			break; \
+		} \
 } while (0)
 
 
@@ -116,6 +124,15 @@ typedef enum {
 	WIRELESS_CHARGER,
 } CHARGER_TYPE;
 
+/*add begin by sunxiaogang@yulong.com 2015.05.11 for battery type detect*/
+typedef enum {
+	FACTORY_UNKNOWN = 0,
+	FACTORY_CPCC,
+	FACTORY_CPTM,
+	FACTORY_CPVK,
+	FACTORY_CPAT,
+} BATTERY_TYPE;
+/*add end by sunxiaogang@yulong.com*/
 
 /* Enum of Voltage List */
 typedef enum {
@@ -501,7 +518,7 @@ typedef enum {
 /* ============================================================ */
 extern int Enable_BATDRV_LOG;
 extern kal_bool chargin_hw_init_done;
-
+extern unsigned int g_bcct_flag;
 
 /* ============================================================ */
 /* External function */
@@ -528,3 +545,4 @@ __weak kal_bool pmic_chrdet_status(void);
 /*BCCT input current control function over switch charger*/
 extern unsigned int set_chr_input_current_limit(int current_limit);
 #endif				/* #ifndef _CHARGING_H */
+

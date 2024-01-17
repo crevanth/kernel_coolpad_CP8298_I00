@@ -103,6 +103,14 @@ config MTK_FAN5405_SUPPORT
           Set to Yes if FAN5405 is used.
 	default n
 
+#add by sunxiaogang@yulong.com 2015.07.20 for thermal regulation when charging
+config YULONG_BQ24296_SUPPORT
+        bool "YuLong BQ24296_SUPPORT"
+        default n
+        help
+            macro for projects with BQ24296
+#add end by sunxiaogang@yulong.com
+
 config MTK_DUAL_INPUT_CHARGER_SUPPORT
         bool "MTK_DUAL_INPUT_CHARGER_SUPPORT"
         help
